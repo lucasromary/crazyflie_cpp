@@ -195,12 +195,23 @@ void Crazyflie::emergencyStopWatchdog()
 }
 
 void Crazyflie::sendPositionSetpoint(
-  float x,
-  float y,
-  float z,
-  float yaw)
+  float pwm1,
+  float pwm2,
+  float pwm3,
+  float pwm4,
+  float pwm5,
+  float pwm6)
 {
-  crtpPositionSetpointRequest request(x, y, z, yaw);
+  crtpPositionSetpointRequest request(pwm1,pwm2,pwm3,pwm4,pwm5,pwm6);
+  sendPacket(request);
+}
+void Crazyflie::sendPwm(
+  float m1,
+  float m2,
+  float m3,
+  float m4)
+{
+  crtpPwmRequest request(m1,m2,m3,m4);
   sendPacket(request);
 }
 
@@ -1099,19 +1110,13 @@ void Crazyflie::handleAck(
       if (m_consoleCallback) {
         m_consoleCallback(r->text);
       }
-      // std::cout << "Console CF: " << r->text << std::endl;
     }
+    // ROS_INFO("Console: %s", r->text);
   }
   else if (crtpLogGetInfoResponse::match(result)) {
     // handled in batch system
   }
-  else if (crtpLogGetInfoV2Response::match(result)) {
-    // handled in batch system
-  }
   else if (crtpLogGetItemResponse::match(result)) {
-    // handled in batch system
-  }
-  else if (crtpLogGetItemV2Response::match(result)) {
     // handled in batch system
   }
   else if (crtpLogControlResponse::match(result)) {
@@ -1139,9 +1144,6 @@ void Crazyflie::handleAck(
   else if (crtpParamTocGetItemV2Response::match(result)) {
     // handled in batch system
   }
-  else if (crtpParamSetByNameResponse::match(result)) {
-    // handled in batch system
-  }
   else if (crtpMemoryGetNumberResponse::match(result)) {
     // handled in batch system
   }
@@ -1161,9 +1163,6 @@ void Crazyflie::handleAck(
     // handled in batch system
   }
   else if (crtp(result.data[0]).port == 8) {
-    // handled in batch system
-  }
-  else if (crtp(result.data[0]).port == 13) {
     // handled in batch system
   }
   else if (crtpPlatformRSSIAck::match(result)) {
@@ -1259,26 +1258,15 @@ void Crazyflie::handleRequests(
   auto start = std::chrono::system_clock::now();
   ITransport::Ack ack;
   m_numRequestsFinished = 0;
-  m_numRequestsEnqueued = 0;
   bool sendPing = false;
-  const size_t queueSize = 16;
 
   float timeout = baseTime + timePerRequest * m_batchRequests.size();
 
-  if (useSafeLink) {
-
-    const size_t numRequests = m_batchRequests.size();
-    size_t remainingRequests = numRequests;
-    size_t requestIdx = 0;
-
-    while (remainingRequests > 0) {
-      remainingRequests = numRequests - m_numRequestsFinished;
-      // std::cout << "rR: " << remainingRequests << " " << m_numRequestsEnqueued << std::endl;
-      // enqueue up to queue size
-      while(m_numRequestsEnqueued < queueSize && requestIdx < numRequests) {
-        const auto& request = m_batchRequests[requestIdx++];
-
-        do {
+  while (true) {
+    if (!crtpMode || !sendPing) {
+      for (const auto& request : m_batchRequests) {
+        if (!request.finished) {
+          // std::cout << "sendReq" << std::endl;
           sendPacketInternal(request.request.data(), request.request.size(), ack, useSafeLink);
           handleBatchAck(ack, crtpMode);
 
@@ -1287,65 +1275,32 @@ void Crazyflie::handleRequests(
           if (elapsedSeconds.count() > timeout) {
             throw std::runtime_error("timeout");
           }
-          // std::cout << "send req " << requestIdx << std::endl;
-        } while (!ack.ack);
-        m_numRequestsEnqueued++;
+        }
       }
-      // send ping's until at least one item in queue is done
-      while(m_numRequestsEnqueued == queueSize
-            || (m_numRequestsFinished < numRequests && requestIdx == numRequests)) {
+      if (m_radio) {
+        sendPing = true;
+      }
+    } else {
+      size_t remainingRequests = m_batchRequests.size() - m_numRequestsFinished;
+      for (size_t i = 0; i < remainingRequests; ++i) {
         crtpEmpty ping;
         sendPacket(ping, ack, useSafeLink);
         handleBatchAck(ack, crtpMode);
+        // if (ack.ack && crtpPlatformRSSIAck::match(ack)) {
+        //   sendPing = false;
+        // }
 
         auto end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsedSeconds = end-start;
         if (elapsedSeconds.count() > timeout) {
           throw std::runtime_error("timeout");
         }
-        // std::cout << "send ping " << m_numRequestsEnqueued << std::endl;
       }
+
+      sendPing = false;
     }
-  } else {
-    while (true) {
-      if (!crtpMode || !sendPing) {
-        for (const auto& request : m_batchRequests) {
-          if (!request.finished) {
-            // std::cout << "sendReq" << std::endl;
-            sendPacketInternal(request.request.data(), request.request.size(), ack, useSafeLink);
-            handleBatchAck(ack, crtpMode);
-            auto end = std::chrono::system_clock::now();
-            std::chrono::duration<double> elapsedSeconds = end-start;
-            if (elapsedSeconds.count() > timeout) {
-              throw std::runtime_error("timeout");
-            }
-          }
-        }
-        if (m_radio && !useSafeLink) {
-          sendPing = true;
-        }
-      } else {
-        size_t remainingRequests = m_batchRequests.size() - m_numRequestsFinished;
-        for (size_t i = 0; i < remainingRequests; ++i) {
-          crtpEmpty ping;
-          sendPacket(ping, ack, useSafeLink);
-          handleBatchAck(ack, crtpMode);
-          // if (ack.ack && crtpPlatformRSSIAck::match(ack)) {
-          //   sendPing = false;
-          // }
-
-          auto end = std::chrono::system_clock::now();
-          std::chrono::duration<double> elapsedSeconds = end-start;
-          if (elapsedSeconds.count() > timeout) {
-            throw std::runtime_error("timeout");
-          }
-        }
-
-        sendPing = false;
-      }
-      if (m_numRequestsFinished == m_batchRequests.size()) {
-        break;
-      }
+    if (m_numRequestsFinished == m_batchRequests.size()) {
+      break;
     }
   }
 }
@@ -1363,7 +1318,6 @@ void Crazyflie::handleBatchAck(
           request.ack = ack;
           request.finished = true;
           ++m_numRequestsFinished;
-          --m_numRequestsEnqueued;
           // std::cout << "gotack" <<std::endl;
           return;
         }
@@ -1373,7 +1327,6 @@ void Crazyflie::handleBatchAck(
           request.ack = ack;
           request.finished = true;
           ++m_numRequestsFinished;
-          --m_numRequestsEnqueued;
           // std::cout << m_numRequestsFinished / (float)m_batchRequests.size() * 100.0 << " %" << std::endl;
           return;
         }
@@ -1425,7 +1378,7 @@ void Crazyflie::uploadTrajectory(
       startBatchRequest();
       // upload pieces
       size_t remainingBytes = sizeof(poly4d) * pieces.size();
-      size_t numRequests = ceil(remainingBytes / 24.0f);
+      size_t numRequests = ceil(remainingBytes / 24);
       for (size_t i = 0; i < numRequests; ++i) {
         crtpMemoryWriteRequest req(entry.id, pieceOffset * sizeof(poly4d) + i*24);
         size_t size = std::min<size_t>(remainingBytes, 24);
@@ -1456,36 +1409,6 @@ void Crazyflie::startTrajectory(
 {
   crtpCommanderHighLevelStartTrajectoryRequest req(groupMask, relative, reversed, trajectoryId, timescale);
   sendPacketOrTimeout(req);
-}
-
-void Crazyflie::readUSDLogFile(
-  std::vector<uint8_t>& data)
-{
-  for (const auto& entry : m_memoryTocEntries) {
-    if (entry.type == MemoryTypeUSD) {
-      startBatchRequest();
-      size_t remainingBytes = entry.size;
-      size_t numRequests = ceil(remainingBytes / 24.0f);
-      for (size_t i = 0; i < numRequests; ++i) {
-        size_t size = std::min<size_t>(remainingBytes, 24);
-        crtpMemoryReadRequest req(entry.id, i*24, size);
-        remainingBytes -= size;
-        addRequest(req, 5);
-      }
-      handleRequests();
-      // put result in data vector
-      data.resize(entry.size);
-      remainingBytes = entry.size;
-      for (size_t i = 0; i < numRequests; ++i) {
-        size_t size = std::min<size_t>(remainingBytes, 24);
-        const crtpMemoryReadResponse* response = getRequestResult<crtpMemoryReadResponse>(i);
-        memcpy(&data[i*24], response->data, size);
-        remainingBytes -= size;
-      }
-      return;
-    }
-  }
-  throw std::runtime_error("Could not find MemoryTypeUSD!");
 }
 
 ////////////////////////////////////////////////////////////////
