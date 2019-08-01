@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include <math.h>
-#include <cstring>
 #include "crtp.h"
 
 // Note: the quaternion compression code is copied from
@@ -110,108 +109,34 @@ crtpHoverSetpointRequest::crtpHoverSetpointRequest(
 
 // m in position, degree in yaw
 crtpPositionSetpointRequest::crtpPositionSetpointRequest(
-	float x,
-	float y,
-	float z,
-	float yaw)
+	float pwm1,
+        float pwm2,
+	float pwm3,
+	float pwm4,
+	float pwm5,
+	float pwm6)
 	: header(0X07, 0), type(7)
 {
-	this->x = x;
-	this->y = y;
-	this->z = z;
-	this->yaw = yaw;
+	this->pwm1 = pwm1;
+	this->pwm2 = pwm2;
+	this->pwm3 = pwm3;
+	this->pwm4 = pwm4;
+	this->pwm5 = pwm5;
+        this->pwm6 = pwm6;
+
 }
 
-template<class T>
-crtpParamSetByNameRequest<T>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	uint8_t paramType,
-	const void* value,
-	uint8_t valueSize)
-	: header(2,3)
+crtpPwmRequest::crtpPwmRequest(
+        float m1,
+        float m2,
+        float m3,
+        float m4)
+        : header(0X07, 0), type(7)
 {
-	size_t groupLen = strlen(group);
-	size_t nameLen = strlen(name);
-	// TODO: do size checking here...
-
-	int idx = 0;
-	// first insert group (followed by \0)
-	memcpy(&data[idx], group, groupLen + 1);
-	idx += groupLen + 1;
-	// insert name (followed by \0)
-	memcpy(&data[idx], name, nameLen + 1);
-	idx += nameLen + 1;
-	// insert type
-	data[idx] = paramType;
-	idx++;
-	// insert value
-	memcpy(&data[idx], value, valueSize);
-	idx += valueSize;
-
-	size_ = idx + 2;
-	responseSize_ = 1+groupLen+1+nameLen+1+1;
+        this->m1 = m1;
+        this->m2 = m2;
+        this->m3 = m3;
+        this->m4 = m4;
 }
 
-template <>
-crtpParamSetByNameRequest<uint8_t>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const uint8_t& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeUint8, &value, sizeof(uint8_t))
-{
-}
 
-template <>
-crtpParamSetByNameRequest<int8_t>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const int8_t& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeInt8, &value, sizeof(int8_t))
-{
-}
-
-template <>
-crtpParamSetByNameRequest<uint16_t>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const uint16_t& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeUint16, &value, sizeof(uint16_t))
-{
-}
-
-template <>
-crtpParamSetByNameRequest<int16_t>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const int16_t& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeInt16, &value, sizeof(int16_t))
-{
-}
-
-template <>
-crtpParamSetByNameRequest<uint32_t>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const uint32_t& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeUint32, &value, sizeof(uint32_t))
-{
-}
-
-template <>
-crtpParamSetByNameRequest<int32_t>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const int32_t& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeInt32, &value, sizeof(int32_t))
-{
-}
-
-template <>
-crtpParamSetByNameRequest<float>::crtpParamSetByNameRequest(
-	const char* group,
-	const char* name,
-	const float& value)
-	: crtpParamSetByNameRequest(group, name, ParamTypeFloat, &value, sizeof(float))
-{
-}
